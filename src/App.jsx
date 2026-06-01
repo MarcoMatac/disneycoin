@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Camera, CheckCircle, Plus, Trash2, Calendar, Coins, Sparkles, Tag, Castle, Star } from 'lucide-react';
+import { Camera, CheckCircle, Plus, Trash2, Calendar, Coins, Sparkles, Tag, Castle, Star, X } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy } from "firebase/firestore";
 
@@ -19,6 +19,7 @@ const db = getFirestore(app);
 
 export default function App() {
   const [coins, setCoins] = useState([]);
+  const [selectedCoin, setSelectedCoin] = useState(null); // Nuovo stato per lo zoom
   
   const [newCoin, setNewCoin] = useState({
     name: '',
@@ -47,17 +48,28 @@ export default function App() {
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        // Comprimiamo l'immagine per non riempire il database troppo in fretta
+        // Comprimiamo l'immagine e la ritagliamo a quadrato per il cerchio perfetto
         const img = new Image();
         img.src = reader.result;
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 600;
-          const scaleSize = MAX_WIDTH / img.width;
-          canvas.width = MAX_WIDTH;
-          canvas.height = img.height * scaleSize;
+          
+          // Troviamo il lato più corto per fare un ritaglio quadrato centrato
+          const size = Math.min(img.width, img.height);
+          const MAX_SIZE = 600; 
+          const scaleSize = Math.min(MAX_SIZE / size, 1);
+          const finalSize = size * scaleSize;
+          
+          canvas.width = finalSize;
+          canvas.height = finalSize;
           const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          
+          // Calcoliamo da dove far partire il ritaglio per centrare l'immagine
+          const startX = (img.width - size) / 2;
+          const startY = (img.height - size) / 2;
+
+          ctx.drawImage(img, startX, startY, size, size, 0, 0, finalSize, finalSize);
+          
           // Qualità JPEG all'80%
           const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8);
           setNewCoin({ ...newCoin, image: compressedBase64 });
@@ -184,11 +196,21 @@ export default function App() {
 
             {/* Sezione Foto */}
             <div className="pt-2">
-              <label className="block text-sm text-blue-200 mb-2 font-medium tracking-wide">Foto della Moneta</label>
-              <div className="flex items-center gap-4">
-                <label className="flex-1 flex justify-center items-center gap-2 bg-[#1a3059] hover:bg-[#233f75] transition-colors py-3.5 px-4 rounded-xl cursor-pointer border border-[#2a4a8a] shadow-md group">
+              <label className="block text-sm text-blue-200 mb-4 font-medium tracking-wide text-center">Foto della Moneta</label>
+              <div className="flex flex-col items-center gap-4">
+                
+                {/* Grande anteprima circolare */}
+                {newCoin.image && (
+                  <div className="w-32 h-32 md:w-40 md:h-40 rounded-full overflow-hidden border-4 border-amber-400 shadow-[0_0_20px_rgba(251,191,36,0.3)] relative">
+                    <img src={newCoin.image} alt="Preview" className="w-full h-full object-cover" />
+                  </div>
+                )}
+
+                <label className="w-full flex justify-center items-center gap-2 bg-[#1a3059] hover:bg-[#233f75] transition-colors py-3.5 px-4 rounded-xl cursor-pointer border border-[#2a4a8a] shadow-md group">
                   <Camera className="w-5 h-5 text-amber-400 group-hover:scale-110 transition-transform" />
-                  <span className="font-medium text-amber-50">Scatta o Carica Foto</span>
+                  <span className="font-medium text-amber-50">
+                    {newCoin.image ? "Cambia Foto" : "Scatta o Carica Foto"}
+                  </span>
                   <input 
                     type="file" 
                     accept="image/*" 
@@ -197,11 +219,6 @@ export default function App() {
                     onChange={handleImageChange}
                   />
                 </label>
-                {newCoin.image && (
-                  <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-amber-400 flex-shrink-0 shadow-[0_0_10px_rgba(251,191,36,0.3)]">
-                    <img src={newCoin.image} alt="Preview" className="w-full h-full object-cover" />
-                  </div>
-                )}
               </div>
             </div>
 
@@ -245,8 +262,12 @@ export default function App() {
                     <Trash2 className="w-4 h-4" />
                   </button>
 
-                  {/* Immagine Moneta (Stile Medaglione) */}
-                  <div className="w-28 h-28 md:w-32 md:h-32 rounded-full bg-gradient-to-br from-amber-200 via-amber-400 to-amber-600 p-1 mb-5 relative shadow-lg">
+                  {/* Immagine Moneta (Stile Medaglione) con Zoom */}
+                  <div 
+                    className="w-28 h-28 md:w-32 md:h-32 rounded-full bg-gradient-to-br from-amber-200 via-amber-400 to-amber-600 p-1 mb-5 relative shadow-lg cursor-pointer hover:scale-105 transition-transform"
+                    onClick={() => setSelectedCoin(coin)}
+                    title="Clicca per ingrandire"
+                  >
                     <div className="w-full h-full rounded-full bg-[#f8f9fa] overflow-hidden flex items-center justify-center border-2 border-white inner-shadow">
                       {coin.image ? (
                         <img src={coin.image} alt={coin.name} className="w-full h-full object-cover" />
@@ -279,6 +300,53 @@ export default function App() {
 
       </main>
       
+      {/* Modal per lo Zoom della Moneta */}
+      {selectedCoin && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#071022]/90 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+          onClick={() => setSelectedCoin(null)}
+        >
+          <div 
+            className="relative flex flex-col items-center max-w-lg w-full transform transition-all scale-100"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Tasto Chiudi */}
+            <button 
+              className="absolute -top-12 right-0 p-2 text-amber-100 hover:text-amber-400 transition-colors bg-white/10 rounded-full"
+              onClick={() => setSelectedCoin(null)}
+            >
+              <X className="w-6 h-6" />
+            </button>
+
+            {/* Immagine Ingrandita */}
+            <div className="w-64 h-64 md:w-80 md:h-80 lg:w-96 lg:h-96 rounded-full bg-gradient-to-br from-amber-200 via-amber-400 to-amber-600 p-2 shadow-[0_0_40px_rgba(251,191,36,0.3)]">
+              <div className="w-full h-full rounded-full bg-[#f8f9fa] overflow-hidden flex items-center justify-center border-4 border-white inner-shadow">
+                {selectedCoin.image ? (
+                  <img src={selectedCoin.image} alt={selectedCoin.name} className="w-full h-full object-cover" />
+                ) : (
+                  <Castle className="w-24 h-24 text-amber-500/30" />
+                )}
+              </div>
+            </div>
+
+            {/* Dettagli nel Modal */}
+            <div className="mt-8 text-center bg-[#0f274d]/80 border border-[#1d3d6e] px-8 py-5 rounded-3xl shadow-xl w-full">
+              <h3 className="text-3xl font-serif text-amber-400 mb-3">{selectedCoin.name}</h3>
+              <div className="flex justify-center items-center gap-3 text-sm text-blue-200">
+                {selectedCoin.category && (
+                  <span className="flex items-center gap-1 bg-amber-500/10 text-amber-300 px-4 py-1.5 rounded-full border border-amber-500/20 font-medium">
+                    <Tag className="w-3.5 h-3.5" /> {selectedCoin.category}
+                  </span>
+                )}
+                <span className="flex items-center gap-1 text-amber-100 font-medium">
+                  <Calendar className="w-4 h-4 text-amber-400/70" /> {selectedCoin.year}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Stile extra per piccole animazioni e ombre */}
       <style dangerouslySetInnerHTML={{__html: `
         @keyframes bounce-short {
