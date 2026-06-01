@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Camera, CheckCircle, Plus, Trash2, Calendar, Coins, Sparkles, Tag, Castle, Star, X, ZoomIn, RotateCw, Check, Pencil, Image as ImageIcon } from 'lucide-react';
+import { Camera, CheckCircle, Plus, Trash2, Calendar, Coins, Sparkles, Tag, Castle, Star, X, ZoomIn, RotateCw, Check, Pencil, Image as ImageIcon, ChevronDown, ChevronRight } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy } from "firebase/firestore";
 
@@ -21,6 +21,7 @@ export default function App() {
   const [coins, setCoins] = useState([]);
   const [selectedCoin, setSelectedCoin] = useState(null); // Stato per lo zoom della moneta
   const [editingId, setEditingId] = useState(null); // Stato per la moneta in modifica
+  const [collapsedCategories, setCollapsedCategories] = useState({}); // Stato per le categorie a tendina
   
   // Stati per l'editor della foto
   const [cropModalOpen, setCropModalOpen] = useState(false);
@@ -212,6 +213,30 @@ export default function App() {
     }
   };
 
+  // Raggruppa e ordina le monete
+  const groupedCoins = coins.reduce((acc, coin) => {
+    const cat = coin.category || 'Altre'; // Se non ha categoria finisce in "Altre"
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(coin);
+    return acc;
+  }, {});
+
+  // Ordina le categorie alfabeticamente
+  const sortedCategories = Object.keys(groupedCoins).sort();
+  
+  // Ordina le monete alfabeticamente all'interno di ogni categoria
+  sortedCategories.forEach(cat => {
+    groupedCoins[cat].sort((a, b) => a.name.localeCompare(b.name));
+  });
+
+  // Funzione per aprire/chiudere la tendina
+  const toggleCategory = (category) => {
+    setCollapsedCategories(prev => ({
+      ...prev,
+      [category]: !prev[category]
+    }));
+  };
+
   return (
     <div className="min-h-screen bg-[#071022] bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#1a3059] via-[#071022] to-[#030712] text-white font-sans pb-12 relative overflow-hidden">
       
@@ -386,62 +411,85 @@ export default function App() {
               <p className="text-sm text-blue-300/50 mt-2">Aggiungi la tua prima moneta per iniziare la magia!</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-              {coins.map(coin => (
-                <div key={coin.id} className="relative bg-[#0f274d]/60 backdrop-blur-sm rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.3)] p-5 flex flex-col items-center transform transition-all hover:-translate-y-2 hover:shadow-[0_15px_40px_rgba(251,191,36,0.15)] group border border-[#1d3d6e]">
-                  
-                  {/* Tasti Azione: Elimina e Modifica */}
-                  <div className="absolute top-3 left-3 right-3 flex justify-between z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button 
-                      onClick={() => removeCoin(coin.id)}
-                      className="p-2 bg-red-500/20 text-red-400 rounded-full hover:bg-red-500/40 hover:text-red-300 shadow-sm transition-colors"
-                      title="Rimuovi"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                    <button 
-                      onClick={() => handleEditClick(coin)}
-                      className="p-2 bg-blue-500/20 text-blue-400 rounded-full hover:bg-blue-500/40 hover:text-blue-300 shadow-sm transition-colors"
-                      title="Modifica"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {/* Immagine Moneta (Stile Medaglione) con Zoom */}
-                  <div 
-                    className="w-28 h-28 md:w-32 md:h-32 rounded-full bg-gradient-to-br from-amber-200 via-amber-400 to-amber-600 p-1 mb-5 relative shadow-lg cursor-pointer hover:scale-105 transition-transform mt-2"
-                    onClick={() => setSelectedCoin(coin)}
-                    title="Clicca per ingrandire"
+            <div className="flex flex-col gap-6">
+              {sortedCategories.map(category => (
+                <div key={category} className="bg-[#0f274d]/30 backdrop-blur-md rounded-2xl border border-[#1d3d6e] overflow-hidden shadow-lg transition-all">
+                  {/* Intestazione Categoria (Cliccabile per la tendina) */}
+                  <button 
+                    onClick={() => toggleCategory(category)}
+                    className="w-full flex justify-between items-center p-4 md:px-6 md:py-4 bg-[#1a3059]/60 hover:bg-[#1a3059] transition-colors group"
                   >
-                    <div className="w-full h-full rounded-full bg-[#030712] overflow-hidden flex items-center justify-center border-2 border-[#1a3059] inner-shadow">
-                      {coin.image ? (
-                        <img src={coin.image} alt={coin.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <Castle className="w-12 h-12 text-amber-500/30" />
-                      )}
+                    <div className="flex items-center gap-3">
+                      <Tag className="w-5 h-5 text-amber-400 group-hover:scale-110 transition-transform" />
+                      <h3 className="text-lg font-bold text-white tracking-wide uppercase md:text-xl">{category}</h3>
+                      <span className="bg-[#030712] text-amber-400 text-xs font-bold px-3 py-1 rounded-full border border-amber-500/20 shadow-inner">
+                        {groupedCoins[category].length}
+                      </span>
                     </div>
-                    
-                    {/* Spunta Verde (se acquisita) o Stella (se da cercare) */}
-                    {coin.acquired ? (
-                      <div className="absolute -bottom-1 -right-1 bg-[#0f274d] rounded-full p-1 shadow-xl animate-bounce-short border border-[#1d3d6e]">
-                        <CheckCircle className="w-7 h-7 text-green-400 drop-shadow-sm" fill="#030712" />
-                      </div>
+                    {collapsedCategories[category] ? (
+                      <ChevronRight className="w-6 h-6 text-amber-400/70 group-hover:text-amber-400" />
                     ) : (
-                      <div className="absolute -bottom-1 -right-1 bg-[#0f274d] rounded-full p-1 shadow-xl border border-amber-500/30">
-                        <Star className="w-7 h-7 text-amber-400 drop-shadow-sm" fill="#030712" />
-                      </div>
+                      <ChevronDown className="w-6 h-6 text-amber-400/70 group-hover:text-amber-400" />
                     )}
-                  </div>
+                  </button>
 
-                  {/* Dettagli */}
-                  <h3 className="font-bold text-white text-center leading-tight mb-2 text-sm md:text-base">{coin.name}</h3>
-                  {coin.category && (
-                    <span className="text-[10px] uppercase tracking-wider text-amber-200 font-bold bg-amber-500/10 border border-amber-500/20 rounded-full px-3 py-1 w-max mx-auto mb-2 flex items-center gap-1">
-                      {coin.category}
-                    </span>
+                  {/* Griglia Monete (nascosta se la tendina è chiusa) */}
+                  {!collapsedCategories[category] && (
+                    <div className="p-4 md:p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5 bg-[#071022]/40">
+                      {groupedCoins[category].map(coin => (
+                        <div key={coin.id} className="relative bg-[#0f274d]/60 backdrop-blur-sm rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.3)] p-5 flex flex-col items-center transform transition-all hover:-translate-y-2 hover:shadow-[0_15px_40px_rgba(251,191,36,0.15)] group border border-[#1d3d6e]">
+                          
+                          {/* Tasti Azione: Elimina e Modifica */}
+                          <div className="absolute top-3 left-3 right-3 flex justify-between z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button 
+                              onClick={() => removeCoin(coin.id)}
+                              className="p-2 bg-red-500/20 text-red-400 rounded-full hover:bg-red-500/40 hover:text-red-300 shadow-sm transition-colors"
+                              title="Rimuovi"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => handleEditClick(coin)}
+                              className="p-2 bg-blue-500/20 text-blue-400 rounded-full hover:bg-blue-500/40 hover:text-blue-300 shadow-sm transition-colors"
+                              title="Modifica"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          {/* Immagine Moneta (Stile Medaglione) con Zoom */}
+                          <div 
+                            className="w-28 h-28 md:w-32 md:h-32 rounded-full bg-gradient-to-br from-amber-200 via-amber-400 to-amber-600 p-1 mb-5 relative shadow-lg cursor-pointer hover:scale-105 transition-transform mt-2"
+                            onClick={() => setSelectedCoin(coin)}
+                            title="Clicca per ingrandire"
+                          >
+                            <div className="w-full h-full rounded-full bg-[#030712] overflow-hidden flex items-center justify-center border-2 border-[#1a3059] inner-shadow">
+                              {coin.image ? (
+                                <img src={coin.image} alt={coin.name} className="w-full h-full object-cover" />
+                              ) : (
+                                <Castle className="w-12 h-12 text-amber-500/30" />
+                              )}
+                            </div>
+                            
+                            {/* Spunta Verde (se acquisita) o Stella (se da cercare) */}
+                            {coin.acquired ? (
+                              <div className="absolute -bottom-1 -right-1 bg-[#0f274d] rounded-full p-1 shadow-xl animate-bounce-short border border-[#1d3d6e]">
+                                <CheckCircle className="w-7 h-7 text-green-400 drop-shadow-sm" fill="#030712" />
+                              </div>
+                            ) : (
+                              <div className="absolute -bottom-1 -right-1 bg-[#0f274d] rounded-full p-1 shadow-xl border border-amber-500/30">
+                                <Star className="w-7 h-7 text-amber-400 drop-shadow-sm" fill="#030712" />
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Dettagli */}
+                          <h3 className="font-bold text-white text-center leading-tight mb-2 text-sm md:text-base">{coin.name}</h3>
+                          <p className="text-xs text-amber-500/80 font-bold mt-auto pt-2 border-t border-[#1d3d6e] w-full text-center">{coin.year}</p>
+                        </div>
+                      ))}
+                    </div>
                   )}
-                  <p className="text-xs text-amber-500/80 font-bold mt-auto pt-2 border-t border-[#1d3d6e] w-full text-center">{coin.year}</p>
                 </div>
               ))}
             </div>
