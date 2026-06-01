@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Camera, CheckCircle, Plus, Trash2, Calendar, Coins, Sparkles, Tag, Castle, Star, X, ZoomIn, RotateCw, Check } from 'lucide-react';
+import { Camera, CheckCircle, Plus, Trash2, Calendar, Coins, Sparkles, Tag, Castle, Star, X, ZoomIn, RotateCw, Check, Pencil, Image as ImageIcon } from 'lucide-react';
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy } from "firebase/firestore";
+import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy } from "firebase/firestore";
 
 // Il tuo collegamento personale a Firebase
 const firebaseConfig = {
@@ -20,6 +20,7 @@ const db = getFirestore(app);
 export default function App() {
   const [coins, setCoins] = useState([]);
   const [selectedCoin, setSelectedCoin] = useState(null); // Stato per lo zoom della moneta
+  const [editingId, setEditingId] = useState(null); // Stato per la moneta in modifica
   
   // Stati per l'editor della foto
   const [cropModalOpen, setCropModalOpen] = useState(false);
@@ -35,7 +36,8 @@ export default function App() {
     name: '',
     category: '',
     year: new Date().getFullYear().toString(),
-    image: null
+    image: null,
+    acquired: true // Aggiunto per gestire se la possiedi o la cerchi
   });
 
   // Carica le monete da Firebase all'avvio
@@ -140,26 +142,65 @@ export default function App() {
     if (!newCoin.name.trim()) return;
 
     try {
-      await addDoc(collection(db, "coins"), {
-        name: newCoin.name,
-        category: newCoin.category,
-        year: newCoin.year,
-        image: newCoin.image,
-        acquired: true,
-        createdAt: Date.now()
-      });
+      if (editingId) {
+        // Aggiorna moneta esistente
+        await updateDoc(doc(db, "coins", editingId), {
+          name: newCoin.name,
+          category: newCoin.category,
+          year: newCoin.year,
+          image: newCoin.image,
+          acquired: newCoin.acquired // Salviamo anche lo stato aggiornato
+        });
+        setEditingId(null);
+      } else {
+        // Aggiungi nuova moneta
+        await addDoc(collection(db, "coins"), {
+          name: newCoin.name,
+          category: newCoin.category,
+          year: newCoin.year,
+          image: newCoin.image,
+          acquired: newCoin.acquired, // Usiamo lo stato scelto dall'utente
+          createdAt: Date.now()
+        });
+      }
       
       // Resetta il form
       setNewCoin({
         name: '',
         category: '',
         year: new Date().getFullYear().toString(),
-        image: null
+        image: null,
+        acquired: true
       });
     } catch (error) {
       console.error("Errore nel salvataggio:", error);
       alert("Errore di connessione al database. Riprova tra poco.");
     }
+  };
+
+  // Prepara il form per la modifica
+  const handleEditClick = (coin) => {
+    setEditingId(coin.id);
+    setNewCoin({
+      name: coin.name,
+      category: coin.category || '',
+      year: coin.year || '',
+      image: coin.image || null,
+      acquired: coin.acquired !== false // di default è true se non era salvato
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Annulla la modifica
+  const cancelEdit = () => {
+    setEditingId(null);
+    setNewCoin({
+      name: '',
+      category: '',
+      year: new Date().getFullYear().toString(),
+      image: null,
+      acquired: true
+    });
   };
 
   // Elimina la moneta da Firebase
@@ -200,8 +241,8 @@ export default function App() {
           <div className="absolute -top-24 -right-24 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl"></div>
 
           <h2 className="text-2xl font-serif text-amber-400 mb-6 flex items-center gap-2 border-b border-[#1d3d6e] pb-4">
-            <Sparkles className="w-5 h-5" /> 
-            Aggiungi una Scoperta
+            {editingId ? <Pencil className="w-5 h-5" /> : <Sparkles className="w-5 h-5" />} 
+            {editingId ? "Modifica Moneta" : "Aggiungi una Scoperta"}
           </h2>
           
           <form onSubmit={handleAddCoin} className="flex flex-col gap-5">
@@ -249,6 +290,25 @@ export default function App() {
               </div>
             </div>
 
+            {/* Switch In Collezione / Wishlist */}
+            <div className="flex items-center justify-between bg-[#1a3059]/50 border border-[#2a4a8a] p-4 rounded-xl mt-2">
+              <div>
+                <p className="text-sm font-medium text-amber-50">Stato della Moneta</p>
+                <p className="text-xs text-blue-300 mt-0.5">
+                  {newCoin.acquired ? "Fa già parte del mio tesoro!" : "La sto cercando (Wishlist)"}
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  className="sr-only peer"
+                  checked={newCoin.acquired}
+                  onChange={(e) => setNewCoin({...newCoin, acquired: e.target.checked})}
+                />
+                <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
+              </label>
+            </div>
+
             {/* Sezione Foto */}
             <div className="pt-2">
               <label className="block text-sm text-blue-200 mb-4 font-medium tracking-wide text-center">Foto della Moneta</label>
@@ -261,29 +321,51 @@ export default function App() {
                   </div>
                 )}
 
-                <label className="w-full flex justify-center items-center gap-2 bg-[#1a3059] hover:bg-[#233f75] transition-colors py-3.5 px-4 rounded-xl cursor-pointer border border-[#2a4a8a] shadow-md group">
-                  <Camera className="w-5 h-5 text-amber-400 group-hover:scale-110 transition-transform" />
-                  <span className="font-medium text-amber-50">
-                    {newCoin.image ? "Cambia Foto" : "Scatta o Carica Foto"}
-                  </span>
-                  <input 
-                    type="file" 
-                    accept="image/*" 
-                    capture="environment"
-                    className="hidden" 
-                    onChange={handleImageChange}
-                  />
-                </label>
+                <div className="flex w-full gap-3">
+                  <label className="flex-1 flex justify-center items-center gap-2 bg-[#1a3059] hover:bg-[#233f75] transition-colors py-3.5 px-2 rounded-xl cursor-pointer border border-[#2a4a8a] shadow-md group">
+                    <Camera className="w-5 h-5 text-amber-400 group-hover:scale-110 transition-transform" />
+                    <span className="font-medium text-amber-50 text-sm">Fotocamera</span>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      capture="environment"
+                      className="hidden" 
+                      onChange={handleImageChange}
+                    />
+                  </label>
+                  <label className="flex-1 flex justify-center items-center gap-2 bg-[#1a3059] hover:bg-[#233f75] transition-colors py-3.5 px-2 rounded-xl cursor-pointer border border-[#2a4a8a] shadow-md group">
+                    <ImageIcon className="w-5 h-5 text-amber-400 group-hover:scale-110 transition-transform" />
+                    <span className="font-medium text-amber-50 text-sm">Galleria</span>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      className="hidden" 
+                      onChange={handleImageChange}
+                    />
+                  </label>
+                </div>
               </div>
             </div>
 
-            <button 
-              type="submit" 
-              className="mt-6 w-full bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-[#071022] font-bold py-4 rounded-full shadow-[0_0_20px_rgba(251,191,36,0.2)] flex justify-center items-center gap-2 transition-all active:scale-[0.98] uppercase tracking-wider text-sm"
-            >
-              <Coins className="w-5 h-5" />
-              Conserva nel Portamonete Magico
-            </button>
+            <div className="mt-6 flex flex-col md:flex-row gap-3">
+              {editingId && (
+                <button 
+                  type="button" 
+                  onClick={cancelEdit}
+                  className="w-full md:w-1/3 bg-[#1a3059] hover:bg-[#233f75] text-white font-bold py-4 rounded-full shadow-lg border border-[#2a4a8a] flex justify-center items-center gap-2 transition-all active:scale-[0.98] uppercase tracking-wider text-sm"
+                >
+                  <X className="w-5 h-5" />
+                  Annulla
+                </button>
+              )}
+              <button 
+                type="submit" 
+                className={`w-full ${editingId ? 'md:w-2/3' : ''} bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-[#071022] font-bold py-4 rounded-full shadow-[0_0_20px_rgba(251,191,36,0.2)] flex justify-center items-center gap-2 transition-all active:scale-[0.98] uppercase tracking-wider text-sm`}
+              >
+                {editingId ? <Check className="w-5 h-5" /> : <Coins className="w-5 h-5" />}
+                {editingId ? "Salva Modifiche" : "Conserva nel Portamonete"}
+              </button>
+            </div>
           </form>
         </section>
 
@@ -306,24 +388,33 @@ export default function App() {
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
               {coins.map(coin => (
-                <div key={coin.id} className="relative bg-white rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.3)] p-5 flex flex-col items-center transform transition-all hover:-translate-y-2 hover:shadow-[0_15px_40px_rgba(251,191,36,0.15)] group border border-amber-100">
+                <div key={coin.id} className="relative bg-[#0f274d]/60 backdrop-blur-sm rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.3)] p-5 flex flex-col items-center transform transition-all hover:-translate-y-2 hover:shadow-[0_15px_40px_rgba(251,191,36,0.15)] group border border-[#1d3d6e]">
                   
-                  {/* Tasto elimina */}
-                  <button 
-                    onClick={() => removeCoin(coin.id)}
-                    className="absolute top-3 left-3 p-2 bg-red-50 text-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10 hover:bg-red-100 hover:text-red-600 shadow-sm"
-                    title="Rimuovi"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {/* Tasti Azione: Elimina e Modifica */}
+                  <div className="absolute top-3 left-3 right-3 flex justify-between z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button 
+                      onClick={() => removeCoin(coin.id)}
+                      className="p-2 bg-red-500/20 text-red-400 rounded-full hover:bg-red-500/40 hover:text-red-300 shadow-sm transition-colors"
+                      title="Rimuovi"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                    <button 
+                      onClick={() => handleEditClick(coin)}
+                      className="p-2 bg-blue-500/20 text-blue-400 rounded-full hover:bg-blue-500/40 hover:text-blue-300 shadow-sm transition-colors"
+                      title="Modifica"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                  </div>
 
                   {/* Immagine Moneta (Stile Medaglione) con Zoom */}
                   <div 
-                    className="w-28 h-28 md:w-32 md:h-32 rounded-full bg-gradient-to-br from-amber-200 via-amber-400 to-amber-600 p-1 mb-5 relative shadow-lg cursor-pointer hover:scale-105 transition-transform"
+                    className="w-28 h-28 md:w-32 md:h-32 rounded-full bg-gradient-to-br from-amber-200 via-amber-400 to-amber-600 p-1 mb-5 relative shadow-lg cursor-pointer hover:scale-105 transition-transform mt-2"
                     onClick={() => setSelectedCoin(coin)}
                     title="Clicca per ingrandire"
                   >
-                    <div className="w-full h-full rounded-full bg-[#f8f9fa] overflow-hidden flex items-center justify-center border-2 border-white inner-shadow">
+                    <div className="w-full h-full rounded-full bg-[#030712] overflow-hidden flex items-center justify-center border-2 border-[#1a3059] inner-shadow">
                       {coin.image ? (
                         <img src={coin.image} alt={coin.name} className="w-full h-full object-cover" />
                       ) : (
@@ -331,22 +422,26 @@ export default function App() {
                       )}
                     </div>
                     
-                    {/* Spunta Verde Magica */}
-                    {coin.acquired && (
-                      <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-1 shadow-xl animate-bounce-short border border-gray-100">
-                        <CheckCircle className="w-7 h-7 text-green-500 drop-shadow-sm" fill="#e8f5e9" />
+                    {/* Spunta Verde (se acquisita) o Stella (se da cercare) */}
+                    {coin.acquired ? (
+                      <div className="absolute -bottom-1 -right-1 bg-[#0f274d] rounded-full p-1 shadow-xl animate-bounce-short border border-[#1d3d6e]">
+                        <CheckCircle className="w-7 h-7 text-green-400 drop-shadow-sm" fill="#030712" />
+                      </div>
+                    ) : (
+                      <div className="absolute -bottom-1 -right-1 bg-[#0f274d] rounded-full p-1 shadow-xl border border-amber-500/30">
+                        <Star className="w-7 h-7 text-amber-400 drop-shadow-sm" fill="#030712" />
                       </div>
                     )}
                   </div>
 
                   {/* Dettagli */}
-                  <h3 className="font-bold text-[#071022] text-center leading-tight mb-2 text-sm md:text-base">{coin.name}</h3>
+                  <h3 className="font-bold text-white text-center leading-tight mb-2 text-sm md:text-base">{coin.name}</h3>
                   {coin.category && (
-                    <span className="text-[10px] uppercase tracking-wider text-[#0f274d] font-bold bg-amber-100/80 border border-amber-200 rounded-full px-3 py-1 w-max mx-auto mb-2 flex items-center gap-1">
+                    <span className="text-[10px] uppercase tracking-wider text-amber-200 font-bold bg-amber-500/10 border border-amber-500/20 rounded-full px-3 py-1 w-max mx-auto mb-2 flex items-center gap-1">
                       {coin.category}
                     </span>
                   )}
-                  <p className="text-xs text-amber-600 font-bold mt-auto pt-2 border-t border-gray-100 w-full text-center">{coin.year}</p>
+                  <p className="text-xs text-amber-500/80 font-bold mt-auto pt-2 border-t border-[#1d3d6e] w-full text-center">{coin.year}</p>
                 </div>
               ))}
             </div>
@@ -375,7 +470,7 @@ export default function App() {
 
             {/* Immagine Ingrandita */}
             <div className="w-64 h-64 md:w-80 md:h-80 lg:w-96 lg:h-96 rounded-full bg-gradient-to-br from-amber-200 via-amber-400 to-amber-600 p-2 shadow-[0_0_40px_rgba(251,191,36,0.3)]">
-              <div className="w-full h-full rounded-full bg-[#f8f9fa] overflow-hidden flex items-center justify-center border-4 border-white inner-shadow">
+              <div className="w-full h-full rounded-full bg-[#030712] overflow-hidden flex items-center justify-center border-4 border-[#1a3059] inner-shadow">
                 {selectedCoin.image ? (
                   <img src={selectedCoin.image} alt={selectedCoin.name} className="w-full h-full object-cover" />
                 ) : (
