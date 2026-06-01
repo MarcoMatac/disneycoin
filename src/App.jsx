@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Camera, CheckCircle, Plus, Trash2, Calendar, Coins, Sparkles, Tag, Castle, Star, X } from 'lucide-react';
+import { Camera, CheckCircle, Plus, Trash2, Calendar, Coins, Sparkles, Tag, Castle, Star, X, ZoomIn, RotateCw, Check } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy } from "firebase/firestore";
 
@@ -19,8 +19,18 @@ const db = getFirestore(app);
 
 export default function App() {
   const [coins, setCoins] = useState([]);
-  const [selectedCoin, setSelectedCoin] = useState(null); // Nuovo stato per lo zoom
+  const [selectedCoin, setSelectedCoin] = useState(null); // Stato per lo zoom della moneta
   
+  // Stati per l'editor della foto
+  const [cropModalOpen, setCropModalOpen] = useState(false);
+  const [rawImage, setRawImage] = useState(null);
+  const [imageDims, setImageDims] = useState({ width: 0, height: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [rotation, setRotation] = useState(0);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
   const [newCoin, setNewCoin] = useState({
     name: '',
     category: '',
@@ -42,41 +52,86 @@ export default function App() {
     return () => unsubscribe(); // Pulisce l'ascolto quando si chiude la pagina
   }, []);
 
-  // Gestisce l'acquisizione dell'immagine e la comprime
+  // Gestisce l'acquisizione dell'immagine e apre l'editor
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        // Comprimiamo l'immagine e la ritagliamo a quadrato per il cerchio perfetto
         const img = new Image();
         img.src = reader.result;
         img.onload = () => {
-          const canvas = document.createElement('canvas');
-          
-          // Troviamo il lato più corto per fare un ritaglio quadrato centrato
-          const size = Math.min(img.width, img.height);
-          const MAX_SIZE = 600; 
-          const scaleSize = Math.min(MAX_SIZE / size, 1);
-          const finalSize = size * scaleSize;
-          
-          canvas.width = finalSize;
-          canvas.height = finalSize;
-          const ctx = canvas.getContext('2d');
-          
-          // Calcoliamo da dove far partire il ritaglio per centrare l'immagine
-          const startX = (img.width - size) / 2;
-          const startY = (img.height - size) / 2;
-
-          ctx.drawImage(img, startX, startY, size, size, 0, 0, finalSize, finalSize);
-          
-          // Qualità JPEG all'80%
-          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8);
-          setNewCoin({ ...newCoin, image: compressedBase64 });
+          setRawImage(reader.result);
+          setImageDims({ width: img.width, height: img.height });
+          setZoom(1);
+          setRotation(0);
+          setPan({ x: 0, y: 0 });
+          setCropModalOpen(true);
         };
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  // Gestione del trascinamento (Pan)
+  const handlePointerDown = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+  };
+
+  const handlePointerMove = (e) => {
+    if (!isDragging) return;
+    e.preventDefault();
+    setPan({
+      x: e.clientX - dragStart.x,
+      y: e.clientY - dragStart.y
+    });
+  };
+
+  const handlePointerUp = () => {
+    setIsDragging(false);
+  };
+
+  // Conferma e ritaglia l'immagine
+  const confirmCrop = () => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const UI_SIZE = 280; 
+    const OUT_SIZE = 600; 
+    const scaleMulti = OUT_SIZE / UI_SIZE;
+
+    canvas.width = OUT_SIZE;
+    canvas.height = OUT_SIZE;
+
+    const img = new Image();
+    img.src = rawImage;
+    img.onload = () => {
+      ctx.fillStyle = '#f8f9fa';
+      ctx.fillRect(0, 0, OUT_SIZE, OUT_SIZE);
+
+      const baseScale = Math.max(UI_SIZE / img.width, UI_SIZE / img.height);
+      const dw = img.width * baseScale;
+      const dh = img.height * baseScale;
+
+      ctx.translate(OUT_SIZE / 2, OUT_SIZE / 2); 
+      ctx.translate(pan.x * scaleMulti, pan.y * scaleMulti); 
+      ctx.rotate((rotation * Math.PI) / 180);
+      ctx.scale(zoom, zoom);
+
+      ctx.drawImage(
+        img,
+        -(dw * scaleMulti) / 2,
+        -(dh * scaleMulti) / 2,
+        dw * scaleMulti,
+        dh * scaleMulti
+      );
+
+      const base64 = canvas.toDataURL('image/jpeg', 0.85);
+      setNewCoin({ ...newCoin, image: base64 });
+      setCropModalOpen(false);
+      setRawImage(null);
+    };
   };
 
   // Salva la nuova moneta su Firebase
@@ -343,6 +398,83 @@ export default function App() {
                 </span>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Editor Foto (Ritaglia, Zoom, Ruota) */}
+      {cropModalOpen && rawImage && (
+        <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-[#030712]/95 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-sm bg-[#0f274d]/90 border border-[#1d3d6e] p-6 rounded-3xl shadow-2xl flex flex-col items-center">
+            
+            <h3 className="text-xl font-serif text-amber-400 mb-6 flex items-center gap-2">
+              <Camera className="w-5 h-5" /> Inquadra la Moneta
+            </h3>
+
+            {/* Area di Ritaglio */}
+            <div 
+              className="relative w-[280px] h-[280px] rounded-full overflow-hidden border-4 border-amber-400 touch-none mx-auto bg-black/50 shadow-inner mb-8 cursor-move"
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerLeave={handlePointerUp}
+            >
+              <img
+                src={rawImage}
+                alt="Da ritagliare"
+                style={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: '50%',
+                  width: `${imageDims.width * Math.max(280/imageDims.width, 280/imageDims.height)}px`,
+                  height: `${imageDims.height * Math.max(280/imageDims.width, 280/imageDims.height)}px`,
+                  transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px)) rotate(${rotation}deg) scale(${zoom})`,
+                  transformOrigin: 'center center',
+                  maxWidth: 'none',
+                  pointerEvents: 'none' // Per evitare conflitti col trascinamento
+                }}
+                draggable={false}
+              />
+              <div className="absolute inset-0 border-2 border-white/20 rounded-full pointer-events-none shadow-[inset_0_0_20px_rgba(0,0,0,0.5)]"></div>
+            </div>
+
+            {/* Controlli Zoom e Rotazione */}
+            <div className="w-full space-y-5 mb-8">
+              <div className="flex items-center gap-3">
+                <ZoomIn className="w-5 h-5 text-amber-400/70" />
+                <input 
+                  type="range" min="1" max="3" step="0.05" value={zoom}
+                  onChange={(e) => setZoom(parseFloat(e.target.value))}
+                  className="w-full accent-amber-400 h-2 bg-[#1a3059] rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <RotateCw className="w-5 h-5 text-amber-400/70" />
+                <input 
+                  type="range" min="-180" max="180" step="1" value={rotation}
+                  onChange={(e) => setRotation(parseFloat(e.target.value))}
+                  className="w-full accent-amber-400 h-2 bg-[#1a3059] rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
+              <p className="text-xs text-blue-300 text-center italic mt-2">Trascina la foto per centrarla</p>
+            </div>
+
+            {/* Pulsanti Azione */}
+            <div className="flex w-full gap-3">
+              <button 
+                onClick={() => setCropModalOpen(false)}
+                className="flex-1 py-3 px-4 rounded-full border border-red-500/30 text-red-400 hover:bg-red-500/10 font-bold flex justify-center items-center gap-2 transition-colors"
+              >
+                <X className="w-5 h-5" /> Annulla
+              </button>
+              <button 
+                onClick={confirmCrop}
+                className="flex-1 py-3 px-4 rounded-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white font-bold flex justify-center items-center gap-2 shadow-lg transition-transform active:scale-95"
+              >
+                <Check className="w-5 h-5" /> Conferma
+              </button>
+            </div>
+
           </div>
         </div>
       )}
