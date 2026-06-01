@@ -1,11 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Camera, CheckCircle, Plus, Trash2, Calendar, Coins, Sparkles, Tag, Castle, Star } from 'lucide-react';
+import { initializeApp } from "firebase/app";
+import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy } from "firebase/firestore";
+
+// Il tuo collegamento personale a Firebase
+const firebaseConfig = {
+  apiKey: "AIzaSyDsCb4p2Ok6SePqcHjmbOWYX7T876SVaOM",
+  authDomain: "disneycoin-d81d2.firebaseapp.com",
+  projectId: "disneycoin-d81d2",
+  storageBucket: "disneycoin-d81d2.firebasestorage.app",
+  messagingSenderId: "1016544434633",
+  appId: "1:1016544434633:web:e84a26c8f81e4e68fb3018"
+};
+
+// Inizializziamo il Database
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
 export default function App() {
-  // Stato per memorizzare la collezione di monete
   const [coins, setCoins] = useState([]);
   
-  // Stato per il form di aggiunta di una nuova moneta
   const [newCoin, setNewCoin] = useState({
     name: '',
     category: '',
@@ -13,43 +27,81 @@ export default function App() {
     image: null
   });
 
-  // Gestisce l'acquisizione dell'immagine (fotocamera o file)
+  // Carica le monete da Firebase all'avvio
+  useEffect(() => {
+    const q = query(collection(db, "coins"), orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const coinsData = [];
+      snapshot.forEach((doc) => {
+        coinsData.push({ id: doc.id, ...doc.data() });
+      });
+      setCoins(coinsData);
+    });
+    
+    return () => unsubscribe(); // Pulisce l'ascolto quando si chiude la pagina
+  }, []);
+
+  // Gestisce l'acquisizione dell'immagine e la comprime
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setNewCoin({ ...newCoin, image: reader.result });
+        // Comprimiamo l'immagine per non riempire il database troppo in fretta
+        const img = new Image();
+        img.src = reader.result;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 600;
+          const scaleSize = MAX_WIDTH / img.width;
+          canvas.width = MAX_WIDTH;
+          canvas.height = img.height * scaleSize;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          // Qualità JPEG all'80%
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8);
+          setNewCoin({ ...newCoin, image: compressedBase64 });
+        };
       };
       reader.readAsDataURL(file);
     }
   };
 
-  // Aggiunge la moneta alla collezione
-  const handleAddCoin = (e) => {
+  // Salva la nuova moneta su Firebase
+  const handleAddCoin = async (e) => {
     e.preventDefault();
     if (!newCoin.name.trim()) return;
 
-    const coinEntry = {
-      ...newCoin,
-      id: Date.now(),
-      acquired: true // Impostato a true per far apparire la spunta verde
-    };
-
-    setCoins([coinEntry, ...coins]);
-    
-    // Resetta il form
-    setNewCoin({
-      name: '',
-      category: '',
-      year: new Date().getFullYear().toString(),
-      image: null
-    });
+    try {
+      await addDoc(collection(db, "coins"), {
+        name: newCoin.name,
+        category: newCoin.category,
+        year: newCoin.year,
+        image: newCoin.image,
+        acquired: true,
+        createdAt: Date.now()
+      });
+      
+      // Resetta il form
+      setNewCoin({
+        name: '',
+        category: '',
+        year: new Date().getFullYear().toString(),
+        image: null
+      });
+    } catch (error) {
+      console.error("Errore nel salvataggio:", error);
+      alert("Errore di connessione al database. Riprova tra poco.");
+    }
   };
 
-  // Rimuove una moneta dalla collezione
-  const removeCoin = (id) => {
-    setCoins(coins.filter(coin => coin.id !== id));
+  // Elimina la moneta da Firebase
+  const removeCoin = async (id) => {
+    try {
+      await deleteDoc(doc(db, "coins", id));
+    } catch (error) {
+      console.error("Errore nell'eliminazione:", error);
+    }
   };
 
   return (
