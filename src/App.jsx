@@ -45,6 +45,7 @@ export default function App() {
     name: '',
     category: '',
     image: null,
+    thumbnail: null,
     acquired: true
   });
 
@@ -148,7 +149,7 @@ export default function App() {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     const UI_SIZE = 280; 
-    const OUT_SIZE = 600; 
+    const OUT_SIZE = 500; // Leggermente ridotto per ottimizzare ulteriormente lo zoom
     const scaleMulti = OUT_SIZE / UI_SIZE;
 
     canvas.width = OUT_SIZE;
@@ -157,7 +158,8 @@ export default function App() {
     const img = new Image();
     img.src = rawImage;
     img.onload = () => {
-      ctx.fillStyle = '#f8f9fa';
+      // 1. Creiamo l'immagine grande per lo zoom
+      ctx.fillStyle = '#050814';
       ctx.fillRect(0, 0, OUT_SIZE, OUT_SIZE);
 
       const baseScale = Math.max(UI_SIZE / img.width, UI_SIZE / img.height);
@@ -171,8 +173,19 @@ export default function App() {
 
       ctx.drawImage(img, -(dw * scaleMulti) / 2, -(dh * scaleMulti) / 2, dw * scaleMulti, dh * scaleMulti);
 
-      const base64 = canvas.toDataURL('image/jpeg', 0.85);
-      setNewCoin({ ...newCoin, image: base64 });
+      const highResBase64 = canvas.toDataURL('image/jpeg', 0.75); // Compressione ottimizzata
+
+      // 2. Creiamo la Miniatura (Thumbnail) ultra leggera per la griglia
+      const thumbCanvas = document.createElement('canvas');
+      const thumbCtx = thumbCanvas.getContext('2d');
+      const THUMB_SIZE = 150;
+      thumbCanvas.width = THUMB_SIZE;
+      thumbCanvas.height = THUMB_SIZE;
+      
+      thumbCtx.drawImage(canvas, 0, 0, OUT_SIZE, OUT_SIZE, 0, 0, THUMB_SIZE, THUMB_SIZE);
+      const thumbBase64 = thumbCanvas.toDataURL('image/jpeg', 0.5); // Compressione massima
+
+      setNewCoin({ ...newCoin, image: highResBase64, thumbnail: thumbBase64 });
       setCropModalOpen(false);
       setRawImage(null);
     };
@@ -188,6 +201,7 @@ export default function App() {
           name: newCoin.name,
           category: newCoin.category,
           image: newCoin.image,
+          thumbnail: newCoin.thumbnail || newCoin.image, // Fallback se la miniatura non c'è
           acquired: newCoin.acquired
         });
         setSuccessMessage("Moneta aggiornata con successo!");
@@ -195,6 +209,7 @@ export default function App() {
       } else {
         await addDoc(collection(db, "coins"), {
           ...newCoin,
+          thumbnail: newCoin.thumbnail || newCoin.image,
           createdAt: Date.now()
         });
         setSuccessMessage("Moneta aggiunta con successo!");
@@ -204,7 +219,7 @@ export default function App() {
       setShowSuccessPopup(true);
       setTimeout(() => setShowSuccessPopup(false), 3000);
 
-      setNewCoin({ name: '', category: '', image: null, acquired: true });
+      setNewCoin({ name: '', category: '', image: null, thumbnail: null, acquired: true });
     } catch (error) {
       console.error("Errore nel salvataggio:", error);
       alert("Errore di connessione al database.");
@@ -218,6 +233,7 @@ export default function App() {
       name: coin.name,
       category: coin.category || '',
       image: coin.image || null,
+      thumbnail: coin.thumbnail || coin.image || null,
       acquired: true // La imposta automaticamente come posseduta
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -229,6 +245,7 @@ export default function App() {
       name: coin.name,
       category: coin.category || '',
       image: coin.image || null,
+      thumbnail: coin.thumbnail || coin.image || null,
       acquired: coin.acquired !== false
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -236,7 +253,7 @@ export default function App() {
 
   const cancelEdit = () => {
     setEditingId(null);
-    setNewCoin({ name: '', category: '', image: null, acquired: true });
+    setNewCoin({ name: '', category: '', image: null, thumbnail: null, acquired: true });
   };
 
   const removeCoin = async (id) => {
@@ -288,7 +305,8 @@ export default function App() {
           >
             <div className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center border-[3px] sm:border-4 inner-shadow ${isWishlist ? 'bg-[#0a1020] border-[#1e2a4a]' : 'bg-[#050811] border-[#0a1020]'}`}>
               {coin.image ? (
-                <img src={coin.image} alt={coin.name} className={`w-full h-full object-cover transition-transform duration-700 group-hover:scale-110 ${isWishlist ? 'grayscale opacity-60 mix-blend-luminosity' : ''}`} />
+                /* QUI USIAMO LA MINIATURA (se presente) CON CARICAMENTO PIGRO */
+                <img src={coin.thumbnail || coin.image} alt={coin.name} loading="lazy" decoding="async" className={`w-full h-full object-cover transition-transform duration-700 group-hover:scale-110 ${isWishlist ? 'grayscale opacity-60 mix-blend-luminosity' : ''}`} />
               ) : (
                 <Castle className={`w-10 h-10 sm:w-14 sm:h-14 ${isWishlist ? 'text-[#1e2a4a]' : 'text-amber-500/40'}`} strokeWidth={1.5} />
               )}
